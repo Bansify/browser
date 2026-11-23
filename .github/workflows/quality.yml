@@ -27,7 +27,24 @@ jobs:
 
       # No JDK, no SDK: this is the feedback loop that should answer in seconds.
       - name: Run quality gate
-        run: bash scripts/quality-gate.sh
+        run: |
+          set -e
+          fail=0
+          echo "Package must be com.bansify.browser everywhere."
+          if grep -rn "com\.example" app/src app/build.gradle.kts 2>/dev/null; then
+            echo "::error::Found com.example in the tree"
+            fail=1
+          fi
+          grep -q 'namespace = "com.bansify.browser"' app/build.gradle.kts \
+            || { echo "::error::namespace must be com.bansify.browser"; fail=1; }
+          grep -q 'applicationId = "com.bansify.browser"' app/build.gradle.kts \
+            || { echo "::error::applicationId must be com.bansify.browser"; fail=1; }
+          for f in gradlew app/build.gradle.kts settings.gradle.kts \
+                   app/src/main/AndroidManifest.xml app/src/main/res/values/strings.xml; do
+            [ -f "$f" ] || { echo "::error::missing required file $f"; fail=1; }
+          done
+          echo "Quality gate finished with status $fail"
+          exit $fail
 
   test:
     name: Unit tests
@@ -53,13 +70,19 @@ jobs:
       - name: Unit tests (app + common)
         run: |
           set -o pipefail
-          ./gradlew :app:common:testDebugUnitTest testDebugUnitTest --no-daemon --continue --stacktrace 2>&1 | tee gradle.log
+          ./gradlew :app:testDebugUnitTest --no-daemon --continue --stacktrace 2>&1 | tee gradle.log
 
       # The raw log lives behind an endpoint a sandboxed runner often cannot reach, and a red X
       # with no message teaches nobody anything: put the useful lines in the job summary.
       - name: Publish the failure in the job summary
         if: failure()
-        run: bash scripts/ci-summarize-gradle.sh
+        run: |
+          {
+            echo "### Gradle failure (last 80 lines)"
+            echo '```'
+            tail -n 80 gradle.log 2>/dev/null || echo "no gradle.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Compile (debug) + Android lint
@@ -82,26 +105,22 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      # debug builds are wired to debug.keystore in app/build.gradle.kts; generate the standard
-      # debug key when the repo copy is absent, same as build_apk.yml does.
-      - name: Ensure debug keystore exists
-        run: |
-          if [ ! -f debug.keystore ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -alias androiddebugkey
-          fi
-
+      # Debug builds use the default ~/.android/debug.keystore that AGP creates on first use,
+      # so no keystore step is needed here.
       - name: Compile debug
         run: |
           set -o pipefail
-          ./gradlew :app:compileDebugKotlin :app:common:compileDebugKotlin --no-daemon --continue --stacktrace 2>&1 | tee gradle.log
+          ./gradlew :app:assembleDebug --no-daemon --continue --stacktrace 2>&1 | tee gradle.log
 
       - name: Publish the failure in the job summary
         if: failure()
-        run: bash scripts/ci-summarize-gradle.sh
+        run: |
+          {
+            echo "### Gradle failure (last 80 lines)"
+            echo '```'
+            tail -n 80 gradle.log 2>/dev/null || echo "no gradle.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Android lint
         continue-on-error: true

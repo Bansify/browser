@@ -61,19 +61,6 @@ jobs:
           echo "v_code=$V_CODE" >> $GITHUB_OUTPUT
           echo "v_name=$V_NAME" >> $GITHUB_OUTPUT
 
-      - name: Ensure Debug Keystore Exists
-        run: |
-          if [ -f "debug.keystore.base64" ]; then
-            echo "Restoring debug.keystore from debug.keystore.base64..."
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f "debug.keystore" ]; then
-            echo "Generating fallback debug.keystore..."
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -alias androiddebugkey
-          fi
 
       - name: Build Release APK, Debug APK and AAB
         run: |
@@ -158,41 +145,8 @@ jobs:
           rm -f "$KS_PATH"
           echo "Keystore securely cleaned up."
 
-      - name: Build Linux Packages (.deb & .tar.gz)
-        run: |
-          chmod +x packaging/linux/build-linux-packages.sh
-          RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Release.apk"
-          if [ ! -f "$RELEASE_APK" ]; then
-            RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Debug.apk"
-          fi
-          ./packaging/linux/build-linux-packages.sh \
-            "$RELEASE_APK" \
-            "${{ steps.versioning.outputs.v_name }}" \
-            "release_out"
 
-      - name: Build Windows Package (.zip)
-        run: |
-          chmod +x packaging/windows/build-windows-package.sh
-          RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Release.apk"
-          if [ ! -f "$RELEASE_APK" ]; then
-            RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Debug.apk"
-          fi
-          ./packaging/windows/build-windows-package.sh \
-            "$RELEASE_APK" \
-            "${{ steps.versioning.outputs.v_name }}" \
-            "release_out"
 
-      - name: Build macOS Package (.app in .zip)
-        run: |
-          chmod +x packaging/macos/build-macos-package.sh
-          RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Release.apk"
-          if [ ! -f "$RELEASE_APK" ]; then
-            RELEASE_APK="release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Debug.apk"
-          fi
-          ./packaging/macos/build-macos-package.sh \
-            "$RELEASE_APK" \
-            "${{ steps.versioning.outputs.v_name }}" \
-            "release_out"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -208,7 +162,3 @@ jobs:
             release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Release.apk
             release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-Debug.apk
             release_out/GothwadTVBrowser-v${{ steps.versioning.outputs.v_name }}-PlayStore.aab
-            release_out/gothwad-browser_${{ steps.versioning.outputs.v_name }}_all.deb
-            release_out/gothwad-browser-linux-v${{ steps.versioning.outputs.v_name }}.tar.gz
-            release_out/gothwad-browser-windows-${{ steps.versioning.outputs.v_name }}.zip
-            release_out/gothwad-browser-macos-${{ steps.versioning.outputs.v_name }}.zip
