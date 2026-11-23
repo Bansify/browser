@@ -67,10 +67,16 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Unit tests (app + common)
+      - name: Unit tests
         run: |
           set -o pipefail
-          ./gradlew :app:testDebugUnitTest --no-daemon --continue --stacktrace 2>&1 | tee gradle.log
+          # Robolectric downloads its android-all runtime from Maven Central on first use;
+          # that fetch fails now and then and takes the whole job with it. One retry, then
+          # let the real failure through.
+          ./gradlew :app:testDebugUnitTest --no-daemon --continue --stacktrace 2>&1 | tee gradle.log || {
+            echo "::warning::first attempt failed, retrying once (Robolectric artifact fetch)"
+            ./gradlew :app:testDebugUnitTest --no-daemon --continue --stacktrace 2>&1 | tee -a gradle.log
+          }
 
       # The raw log lives behind an endpoint a sandboxed runner often cannot reach, and a red X
       # with no message teaches nobody anything: put the useful lines in the job summary.
