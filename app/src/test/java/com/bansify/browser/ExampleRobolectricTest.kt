@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
  * branded — keep these values in step with strings.xml and build.gradle.kts.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class ExampleRobolectricTest {
 
     @Test

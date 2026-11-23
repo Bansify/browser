@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
  * `android.util.Patterns` and `android.net.Uri`.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class UrlUtilsTest {
 
     private fun resolve(input: String, httpsFirst: Boolean = true) =
