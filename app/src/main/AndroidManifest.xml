@@ -4,185 +4,38 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
-    <uses-feature
-        android:name="android.hardware.touchscreen"
-        android:required="false" />
-    <uses-feature android:name="android.hardware.faketouch"
-        android:required="false"/>
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.microphone"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.location"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.location.network"
-        android:required="false" />
-    <uses-feature
-        android:name="android.software.leanback"
-        android:required="false" />
-    <uses-feature android:name="android.hardware.screen.landscape"
-        android:required="false"/>
-    <uses-feature android:name="android.software.webview"
-        android:required="false"/>
-
-    <queries>
-        <!-- "Open in external app" / app-store links resolve arbitrary VIEW intents, so the whole
-             action has to be visible - this replaces the QUERY_ALL_PACKAGES permission. -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.INSTALL_PACKAGE" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SEND" />
-            <data android:mimeType="text/plain" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="http" />
-        </intent>
-        <intent>
-            <action
-                android:name="android.speech.RecognitionService" />
-        </intent>
-        <intent>
-            <action
-                android:name="android.speech.action.RECOGNIZE_SPEECH" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-        </intent>
-    </queries>
 
     <application
-        android:name=".BrowserApp"
         android:allowBackup="true"
-        android:hardwareAccelerated="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:banner="@drawable/tv_banner"
         android:label="@string/app_name"
-        android:largeHeap="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:networkSecurityConfig="@xml/network_security_config"
-        android:theme="@style/AppTheme"
-        android:requestLegacyExternalStorage="true"
-        tools:ignore="DiscouragedApi" >
+        android:hardwareAccelerated="true"
+        android:theme="@style/Theme.MyApplication">
         <activity
-            android:name=".activity.main.MainActivity"
-            android:banner="@drawable/tv_banner"
-            android:icon="@mipmap/ic_launcher"
-            android:roundIcon="@mipmap/ic_launcher_round"
-            android:label="@string/app_name_short"
-            android:launchMode="singleTask"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
-            android:screenOrientation="unspecified"
-            android:logo="@drawable/tv_banner"
+            android:name=".MainActivity"
             android:exported="true"
-            tools:ignore="DiscouragedApi">
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".activity.history.HistoryActivity"
-            android:theme="@style/Theme.SidebarLeft"
-            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
-            android:screenOrientation="behind"
-            android:windowSoftInputMode="adjustResize"
-            tools:ignore="DiscouragedApi" />
-
-        <activity android:name=".activity.downloads.DownloadsActivity"
-            android:theme="@style/Theme.SidebarRight"
-            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
-            android:screenOrientation="behind"
-            android:windowSoftInputMode="adjustResize"
-            tools:ignore="DiscouragedApi"/>
-
-        <activity android:name=".activity.lock.AppLockActivity"
-            android:theme="@style/Theme.BrowserApp"
-            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
-            android:screenOrientation="behind"
-            android:windowSoftInputMode="adjustResize"
-            tools:ignore="DiscouragedApi"/>
-
-        <activity android:name=".activity.IncognitoModeMainActivity"
-            android:process=":incognito"
-            android:exported="false"
-            android:icon="@mipmap/ic_launcher"
-            android:roundIcon="@mipmap/ic_launcher_round"
-            android:label="@string/app_name_short"
-            android:screenOrientation="unspecified"
-            android:launchMode="singleTask"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|layoutDirection|locale|touchscreen"
-            tools:ignore="DiscouragedApi" />
-
-        <meta-data
-            android:name="android.webkit.WebView.MetricsOptOut"
-            android:value="true" />
-            
-        <meta-data
-            android:name="android.webkit.WebView.EnableSafeBrowsing"
-            android:value="true" />
-
-        <service
-            android:name=".service.downloads.DownloadService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false"/>
-
-        <service
-            android:name=".service.keepalive.BrowserKeepAliveService"
-            android:foregroundServiceType="specialUse"
-            android:exported="false">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keep active web browser tabs and navigation state alive in background" />
-        </service>
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.provider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/provider_paths"/>
-        </provider>
     </application>
+
 </manifest>

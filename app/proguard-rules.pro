@@ -1,35 +1,21 @@
-# TV Browser ProGuard / R8 Performance & Size Rules
+# Add project specific ProGuard rules here.
+# You can control the set of applied configuration files using the
+# proguardFiles setting in build.gradle.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# Strip excessive Android debug logging in release builds to eliminate string allocations & logging overhead on TV D-Pad navigation
--assumenosideeffects class android.util.Log {
-    public static boolean isLoggable(java.lang.String, int);
-    public static int v(...);
-    public static int d(...);
-    public static int i(...);
-    public static int w(...);
-}
+# If your project uses WebView with JS, uncomment the following
+# and specify the fully qualified class name to the JavaScript interface
+# class:
+#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+#   public *;
+#}
 
-# Optimize Room & SQLite Database
--keepclassmembers class * extends androidx.room.RoomDatabase {
-    <init>();
-}
+# Uncomment this to preserve the line number information for
+# debugging stack traces.
+#-keepattributes SourceFile,LineNumberTable
 
-# WebKit & JavaScript Interfaces
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
-
-# WebEngine and Models
--keep class com.bansify.internet.webengine.webview.WebViewWebEngine { *; }
-
--keepclassmembers class com.bansify.internet.model.** {
-   public *;
-}
--keepclassmembers class com.brave.adblock.AdBlockClient {
-   public *;
-   private *;
-}
--keepclassmembers class com.bansify.internet.webengine.webview.AndroidJSInterface {
-   public *;
-   private *;
-}
+# If you keep the line number information, uncomment this to
+# hide the original source file name.
+#-renamesourcefileattribute SourceFile
