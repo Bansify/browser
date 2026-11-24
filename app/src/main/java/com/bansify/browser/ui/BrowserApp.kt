@@ -11,6 +11,7 @@ import android.net.Uri
 import android.speech.RecognizerIntent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.widget.FrameLayout
@@ -18,13 +19,25 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,9 +49,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -48,6 +64,7 @@ import com.bansify.browser.MainActivity
 import com.bansify.browser.R
 import com.bansify.browser.browser.UrlUtils
 import com.bansify.browser.browser.WebViewPool
+import com.bansify.browser.viewmodel.PageError
 import com.bansify.browser.data.AddressBarPosition
 import com.bansify.browser.data.BookmarkEntity
 import com.bansify.browser.data.BrowserOverlay
@@ -83,6 +100,7 @@ fun BrowserApp(viewModel: BrowserViewModel) {
     val accountState by viewModel.accountState.collectAsStateWithLifecycle()
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
+    val pageError by viewModel.pageError.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
@@ -212,6 +230,23 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                     viewModel.createNewTab(url = url, isIncognito = isIncognito)
                 }
 
+                override fun onPopupTabCreated(tabId: String, isIncognito: Boolean) {
+                    viewModel.adoptPopupTab(tabId, isIncognito)
+                }
+
+                override fun onPageError(
+                    tabId: String,
+                    url: String,
+                    message: String,
+                    isSslError: Boolean
+                ) {
+                    viewModel.onPageError(tabId, url, message, isSslError)
+                }
+
+                override fun onRendererGone(tabId: String, didCrash: Boolean) {
+                    viewModel.onRendererGone(tabId, didCrash)
+                }
+
                 override fun onExternalUrlError(message: String) {
                     viewModel.showSnackbar(message)
                 }
@@ -225,6 +260,28 @@ fun BrowserApp(viewModel: BrowserViewModel) {
 
     LaunchedEffect(settings) {
         webViewPool.updateSettingsForAll(tabs, settings)
+    }
+
+    // Incognito tabs must not show up in the recents thumbnail or a screenshot.
+    val hasIncognitoTab = tabs.any { it.isIncognito }
+    DisposableEffect(hasIncognitoTab) {
+        val window = (context as? Activity)?.window
+        if (hasIncognitoTab) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+
+    // WebView keeps one cookie jar for the whole process, so the incognito session is wiped
+    // when its last tab closes.
+    var hadIncognitoTab by remember { mutableStateOf(false) }
+    LaunchedEffect(hasIncognitoTab) {
+        if (hadIncognitoTab && !hasIncognitoTab) {
+            webViewPool.clearIncognitoData()
+        }
+        hadIncognitoTab = hasIncognitoTab
     }
 
     LaunchedEffect(Unit) {
@@ -455,6 +512,21 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(if (!isBottomAddressBar) Modifier.navigationBarsPadding() else Modifier)
+                        )
+                    }
+
+                    val currentError = pageError
+                    if (currentError != null && currentError.tabId == activeTab.id) {
+                        PageErrorOverlay(
+                            error = currentError,
+                            onRetry = {
+                                viewModel.dismissPageError()
+                                webViewPool.reload(currentError.tabId)
+                            },
+                            onClose = {
+                                viewModel.dismissPageError()
+                                viewModel.closeTab(currentError.tabId)
+                            }
                         )
                     }
                 }
@@ -732,6 +804,65 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                     dialog = dialog,
                     onDismiss = { viewModel.showJsDialog(null) }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Shown over a page that failed to load, so a network or certificate failure never leaves a
+ * blank screen behind the toolbar.
+ */
+@Composable
+private fun PageErrorOverlay(
+    error: PageError,
+    onRetry: () -> Unit,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .widthIn(max = 420.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = if (error.isSslError) "Connection not secure" else "This page could not load",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = error.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start
+                )
+                if (error.url.isNotBlank()) {
+                    Text(
+                        text = error.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = onRetry) {
+                        Text("Try again")
+                    }
+                    TextButton(onClick = onClose) {
+                        Text("Close tab")
+                    }
+                }
             }
         }
     }

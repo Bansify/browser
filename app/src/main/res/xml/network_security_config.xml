@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A browser has to be able to open the address the user typed, including http:// sites and
+  intranet hosts, so cleartext cannot be blocked outright here the way it is in a normal app.
+  What protects the user instead:
+
+    - HTTPS-first is on by default (BrowserSettings.httpsFirstEnabled), so typed hosts are
+      upgraded before the first request.
+    - A certificate error cancels the load and shows the error overlay; there is no bypass.
+    - The omnibox shows a warning icon for any http:// page, and the site-info sheet says
+      "Connection is not secure".
+
+  Everything below is explicit rather than inherited, so the policy is reviewable.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
