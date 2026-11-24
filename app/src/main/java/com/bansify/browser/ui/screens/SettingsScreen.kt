@@ -93,7 +93,12 @@ fun SettingsScreen(
     onUpdateBansifyProfile: (displayName: String, email: String, avatarColorHex: Long) -> Unit,
     onSignOutBansify: () -> Unit,
     onUpdateBansifySync: ((BansifyAccountState) -> BansifyAccountState) -> Unit,
-    onSyncNow: () -> Unit
+    onSyncNow: () -> Unit,
+    adBlockedCount: Long = 0,
+    sitePermissionDecisions: List<com.bansify.browser.data.SitePermissionDecision> = emptyList(),
+    onResetAdBlockCount: () -> Unit = {},
+    onForgetSitePermission: (String) -> Unit = {},
+    onForgetAllSitePermissions: () -> Unit = {}
 ) {
     BackHandler { onBack() }
 
@@ -134,7 +139,12 @@ fun SettingsScreen(
                 onBack = onBack,
                 onNavigateSubScreen = onNavigateSubScreen,
                 onOpenDeleteBrowsingData = onOpenDeleteBrowsingData,
-                onUpdateSettings = onUpdateSettings
+                onUpdateSettings = onUpdateSettings,
+                adBlockedCount = adBlockedCount,
+                sitePermissionDecisions = sitePermissionDecisions,
+                onResetAdBlockCount = onResetAdBlockCount,
+                onForgetSitePermission = onForgetSitePermission,
+                onForgetAllSitePermissions = onForgetAllSitePermissions
             )
             return
         }
@@ -164,6 +174,12 @@ fun SettingsScreen(
                 testTag = "settings_privacy",
                 target = SettingsSubScreen.PRIVACY_SECURITY,
                 keywords = "safe browsing https cookies delete browsing data do not track incognito"
+            ),
+            SettingsEntry(
+                title = "Ad blocking and permissions",
+                testTag = "settings_blocking_permissions",
+                target = SettingsSubScreen.BLOCKING_PERMISSIONS,
+                keywords = "ads tracker blocker camera microphone location permission allow block"
             ),
             SettingsEntry(
                 title = "Safety check",

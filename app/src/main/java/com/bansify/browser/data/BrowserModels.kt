@@ -103,7 +103,11 @@ data class BrowserSettings(
     val forceEnableZoom: Boolean = false,
     val simplifiedViewEnabled: Boolean = false,
     val askWhereToSaveDownloads: Boolean = false,
-    val showRecentCardsOnNtp: Boolean = true
+    val showRecentCardsOnNtp: Boolean = true,
+    /** Host-based ad and tracker blocking, on by default, user can turn it off in Settings. */
+    val adBlockEnabled: Boolean = true,
+    /** Ask the user before a site gets camera, microphone or location. */
+    val sitePermissionPromptsEnabled: Boolean = true
 )
 
 data class BrowserTab(
@@ -153,6 +157,7 @@ enum class SettingsSubScreen(val title: String) {
     ADDRESS_BAR("Address bar"),
     PRIVACY_SECURITY("Privacy and security"),
     SAFE_BROWSING("Safe Browsing"),
+    BLOCKING_PERMISSIONS("Ad blocking and permissions"),
     THIRD_PARTY_COOKIES("Third-party cookies"),
     SAFETY_CHECK("Safety check"),
     DEFAULT_BROWSER("Default browser"),

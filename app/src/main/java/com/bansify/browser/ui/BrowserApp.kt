@@ -1,11 +1,13 @@
 package com.bansify.browser.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.speech.RecognizerIntent
@@ -55,6 +57,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.bansify.browser.data.SitePermission
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -64,6 +68,9 @@ import com.bansify.browser.MainActivity
 import com.bansify.browser.R
 import com.bansify.browser.browser.UrlUtils
 import com.bansify.browser.browser.WebViewPool
+import com.bansify.browser.browser.AdBlocker
+import com.bansify.browser.ui.components.SafeBrowsingDialog
+import com.bansify.browser.ui.components.SitePermissionDialog
 import com.bansify.browser.viewmodel.PageError
 import com.bansify.browser.data.AddressBarPosition
 import com.bansify.browser.data.BookmarkEntity
@@ -101,6 +108,9 @@ fun BrowserApp(viewModel: BrowserViewModel) {
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
     val pageError by viewModel.pageError.collectAsStateWithLifecycle()
+    val pendingPermission by viewModel.pendingPermission.collectAsStateWithLifecycle()
+    val safeBrowsingWarning by viewModel.safeBrowsingWarning.collectAsStateWithLifecycle()
+    val sitePermissionDecisions by viewModel.sitePermissionDecisions.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
@@ -125,6 +135,17 @@ fun BrowserApp(viewModel: BrowserViewModel) {
     ) { uris ->
         pendingFileChooserCallback?.onReceiveValue(uris.toTypedArray())
         pendingFileChooserCallback = null
+    }
+
+    // A WebView grant only works if the app itself holds the OS permission, so ask the user
+    // for the Android permission first, then answer the page.
+    var pendingOsPermission by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val osPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val rememberDecision = pendingOsPermission?.second ?: false
+        pendingOsPermission = null
+        viewModel.answerPendingPermission(granted, rememberDecision)
     }
 
     val voiceSearchLauncher = rememberLauncherForActivityResult(
@@ -245,6 +266,24 @@ fun BrowserApp(viewModel: BrowserViewModel) {
 
                 override fun onRendererGone(tabId: String, didCrash: Boolean) {
                     viewModel.onRendererGone(tabId, didCrash)
+                }
+
+                override fun onSitePermissionRequest(
+                    tabId: String,
+                    origin: String,
+                    permission: com.bansify.browser.data.SitePermission,
+                    onResult: (Boolean) -> Unit
+                ) {
+                    viewModel.onSitePermissionRequest(tabId, origin, permission, onResult)
+                }
+
+                override fun onSafeBrowsingHit(
+                    tabId: String,
+                    url: String,
+                    threatType: Int,
+                    response: android.webkit.SafeBrowsingResponse
+                ) {
+                    viewModel.onSafeBrowsingHit(tabId, url, threatType, response)
                 }
 
                 override fun onExternalUrlError(message: String) {
@@ -532,6 +571,40 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                 }
             }
 
+            pendingPermission?.let { pending ->
+                SitePermissionDialog(
+                    pending = pending,
+                    onAnswer = { grant, remember ->
+                        if (!grant) {
+                            viewModel.answerPendingPermission(false, remember)
+                        } else {
+                            val androidPermission = when (pending.permission) {
+                                SitePermission.CAMERA -> Manifest.permission.CAMERA
+                                SitePermission.MICROPHONE -> Manifest.permission.RECORD_AUDIO
+                                SitePermission.LOCATION -> Manifest.permission.ACCESS_FINE_LOCATION
+                                SitePermission.NOTIFICATIONS -> null
+                            }
+                            val alreadyGranted = androidPermission == null ||
+                                ContextCompat.checkSelfPermission(context, androidPermission) ==
+                                PackageManager.PERMISSION_GRANTED
+                            if (alreadyGranted) {
+                                viewModel.answerPendingPermission(true, remember)
+                            } else {
+                                pendingOsPermission = androidPermission!! to remember
+                                osPermissionLauncher.launch(androidPermission)
+                            }
+                        }
+                    }
+                )
+            }
+
+            safeBrowsingWarning?.let { warning ->
+                SafeBrowsingDialog(
+                    warning = warning,
+                    onResolve = { proceed -> viewModel.resolveSafeBrowsing(proceed) }
+                )
+            }
+
             // Root-aligned Chrome 3-Dot Overflow Menu (flush right edge + full vertical scrolling)
             ChromeOverflowMenu(
                 expanded = overflowMenuExpanded,
@@ -726,7 +799,12 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                         },
                         onSignOutBansify = { viewModel.signOutBansifyAccount() },
                         onUpdateBansifySync = { transform -> viewModel.updateBansifySync(transform) },
-                        onSyncNow = { viewModel.triggerManualSync() }
+                        onSyncNow = { viewModel.triggerManualSync() },
+                        adBlockedCount = AdBlocker.blockedCount(),
+                        sitePermissionDecisions = sitePermissionDecisions,
+                        onResetAdBlockCount = { AdBlocker.resetBlockedCount() },
+                        onForgetSitePermission = { origin -> viewModel.forgetSitePermission(origin) },
+                        onForgetAllSitePermissions = { viewModel.forgetAllSitePermissions() }
                     )
                 }
             }

@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -58,6 +59,7 @@ import com.bansify.browser.data.BrowserSettings
 import com.bansify.browser.data.SafeBrowsingLevel
 import com.bansify.browser.data.SearchEngine
 import com.bansify.browser.data.SettingsSubScreen
+import com.bansify.browser.data.SitePermissionDecision
 import com.bansify.browser.data.ThemeMode
 import com.bansify.browser.data.ThirdPartyCookiePolicy
 import com.bansify.browser.data.ToolbarShortcut
@@ -76,7 +78,12 @@ fun SettingsSubScreenContent(
     onBack: () -> Unit,
     onNavigateSubScreen: (SettingsSubScreen) -> Unit,
     onOpenDeleteBrowsingData: () -> Unit,
-    onUpdateSettings: ((BrowserSettings) -> BrowserSettings) -> Unit
+    onUpdateSettings: ((BrowserSettings) -> BrowserSettings) -> Unit,
+    adBlockedCount: Long = 0,
+    sitePermissionDecisions: List<SitePermissionDecision> = emptyList(),
+    onResetAdBlockCount: () -> Unit = {},
+    onForgetSitePermission: (String) -> Unit = {},
+    onForgetAllSitePermissions: () -> Unit = {}
 ) {
     val canvasBg = expressiveCanvasColor()
     val context = LocalContext.current
@@ -490,6 +497,87 @@ fun SettingsSubScreenContent(
                             checked = settings.offerTranslatePages,
                             onCheckedChange = { v -> onUpdateSettings { it.copy(offerTranslatePages = v) } }
                         )
+                    }
+                }
+
+                SettingsSubScreen.BLOCKING_PERMISSIONS -> {
+                    item {
+                        ExpressiveSettingsSectionTitle("Ad and tracker blocking")
+                        ExpressiveSwitchCard(
+                            index = 0,
+                            totalCount = 2,
+                            title = "Block ads and trackers",
+                            subtitle = if (settings.adBlockEnabled) {
+                                "On — $adBlockedCount requests blocked since launch"
+                            } else {
+                                "Off — every request the page makes is loaded"
+                            },
+                            checked = settings.adBlockEnabled,
+                            onCheckedChange = { v -> onUpdateSettings { it.copy(adBlockEnabled = v) } }
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        ExpressiveSwitchCard(
+                            index = 1,
+                            totalCount = 2,
+                            title = "Ask before sites use camera, mic or location",
+                            subtitle = if (settings.sitePermissionPromptsEnabled) {
+                                "Each site must ask, and you decide"
+                            } else {
+                                "Every site permission request is denied"
+                            },
+                            checked = settings.sitePermissionPromptsEnabled,
+                            onCheckedChange = { v -> onUpdateSettings { it.copy(sitePermissionPromptsEnabled = v) } }
+                        )
+                        if (adBlockedCount > 0) {
+                            TextButton(onClick = onResetAdBlockCount) {
+                                Text("Reset blocked counter")
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        ExpressiveSettingsSectionTitle("Sites you allowed")
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (sitePermissionDecisions.isEmpty()) {
+                                Text(
+                                    text = "No site has been allowed a permission yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                                )
+                            } else {
+                                sitePermissionDecisions.forEach { decision ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 20.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = decision.permission.label,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                            Text(
+                                                text = decision.origin,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        TextButton(onClick = { onForgetSitePermission(decision.origin) }) {
+                                            Text("Remove")
+                                        }
+                                    }
+                                }
+                                TextButton(
+                                    onClick = onForgetAllSitePermissions,
+                                    modifier = Modifier.padding(start = 12.dp)
+                                ) {
+                                    Text("Clear all")
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -14,7 +14,12 @@ import android.os.Message
 import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
+import android.os.Bundle
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.SafeBrowsingResponse
+import android.webkit.WebResourceResponse
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.URLUtil
@@ -31,6 +36,7 @@ import com.bansify.browser.data.BrowserSettings
 import com.bansify.browser.data.BrowserTab
 import com.bansify.browser.data.JsDialogState
 import com.bansify.browser.data.SafeBrowsingLevel
+import com.bansify.browser.data.SitePermission
 import com.bansify.browser.data.ThirdPartyCookiePolicy
 import java.io.File
 
@@ -42,6 +48,14 @@ class WebViewPool(
     private val context: Context,
     private val callbacks: Callbacks
 ) {
+
+    private val adBlocker = AdBlocker(context)
+
+    init {
+        active = this
+    }
+
+    fun adBlockerInstance(): AdBlocker = adBlocker
     interface Callbacks {
         fun onPageStarted(tabId: String, url: String)
         fun onPageFinished(tabId: String, url: String, title: String, canGoBack: Boolean, canGoForward: Boolean)
@@ -66,6 +80,22 @@ class WebViewPool(
         /** The renderer process for this tab died (crash or OOM); the WebView is already gone. */
         fun onRendererGone(tabId: String, didCrash: Boolean)
 
+        /** A site asked for camera/mic/location. Answer through [onResult]. */
+        fun onSitePermissionRequest(
+            tabId: String,
+            origin: String,
+            permission: SitePermission,
+            onResult: (Boolean) -> Unit
+        )
+
+        /** Safe Browsing flagged this page; the caller must answer the response. */
+        fun onSafeBrowsingHit(
+            tabId: String,
+            url: String,
+            threatType: Int,
+            response: SafeBrowsingResponse
+        )
+
         fun onExternalUrlError(message: String)
     }
 
@@ -78,6 +108,15 @@ class WebViewPool(
     private var currentSettings: BrowserSettings = BrowserSettings()
 
     companion object {
+        /** Live pool for the process, so the activity can save WebView state on rotation/kill. */
+        @Volatile
+        var active: WebViewPool? = null
+            private set
+
+        /** State handed back by the activity after a configuration change or process restore. */
+        @Volatile
+        var pendingState: Bundle? = null
+
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     }
@@ -296,6 +335,18 @@ class WebViewPool(
 
     fun destroyAll() {
         webViews.keys.toList().forEach { destroyTab(it) }
+        if (active === this) active = null
+    }
+
+    /** Writes every live WebView's navigation state into [outState] for a later restore. */
+    fun saveStateTo(outState: Bundle) {
+        webViews.forEach { (tabId, webView) ->
+            runCatching {
+                val state = Bundle()
+                webView.saveState(state)
+                outState.putBundle("wv_state_$tabId", state)
+            }
+        }
     }
 
     /**
@@ -372,6 +423,35 @@ class WebViewPool(
         }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                if (request == null) return null
+                if (!currentSettings.adBlockEnabled) return null
+                val url = request.url?.toString() ?: return null
+                return if (adBlocker.shouldBlock(url, request.isForMainFrame)) {
+                    adBlocker.emptyResponse()
+                } else {
+                    null
+                }
+            }
+
+            override fun onSafeBrowsingHit(
+                view: WebView?,
+                request: WebResourceRequest?,
+                threatType: Int,
+                callback: SafeBrowsingResponse?
+            ) {
+                if (callback == null) return
+                callbacks.onSafeBrowsingHit(
+                    tabId = tab.id,
+                    url = request?.url?.toString().orEmpty(),
+                    threatType = threatType,
+                    response = callback
+                )
+            }
+
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -548,6 +628,59 @@ class WebViewPool(
                 return true
             }
 
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                val req = request ?: return
+                val origin = runCatching { Uri.parse(req.origin.toString()).host }
+                    .getOrNull()
+                    .orEmpty()
+                val wanted = buildList {
+                    if (req.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                        add(SitePermission.CAMERA)
+                    }
+                    if (req.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                        add(SitePermission.MICROPHONE)
+                    }
+                }
+                if (wanted.isEmpty()) {
+                    req.deny()
+                    return
+                }
+                val granted = mutableSetOf<String>()
+                var outstanding = wanted.size
+                wanted.forEach { permission ->
+                    callbacks.onSitePermissionRequest(tab.id, origin, permission) { allowed ->
+                        synchronized(granted) {
+                            if (allowed) {
+                                when (permission) {
+                                    SitePermission.CAMERA -> granted.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                                    SitePermission.MICROPHONE -> granted.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                                    else -> Unit
+                                }
+                            }
+                            outstanding -= 1
+                            if (outstanding == 0) {
+                                if (granted.isEmpty()) {
+                                    req.deny()
+                                } else {
+                                    req.grant(granted.toTypedArray())
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                if (origin == null || callback == null) return
+                val host = runCatching { Uri.parse(origin).host }.getOrNull().orEmpty()
+                callbacks.onSitePermissionRequest(tab.id, host, SitePermission.LOCATION) { allowed ->
+                    callback.invoke(origin, allowed, true)
+                }
+            }
+
             override fun onCreateWindow(
                 view: WebView?,
                 isDialog: Boolean,
@@ -602,6 +735,10 @@ class WebViewPool(
             )
         }
 
+        pendingState?.getBundle("wv_state_$tab.id")?.let { saved ->
+            runCatching { webView.restoreState(saved) }
+        }
+
         return webView
     }
 
@@ -630,6 +767,9 @@ class WebViewPool(
         ws.cacheMode = if (tab.isIncognito) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
         // window.open() / target=_blank land in onCreateWindow below instead of a dead end.
         ws.setSupportMultipleWindows(true)
+        // Websites ask for geolocation through onGeolocationPermissionsShowPrompt; the user
+        // decides, never the page.
+        ws.setGeolocationEnabled(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ws.safeBrowsingEnabled = settings.safeBrowsingLevel != SafeBrowsingLevel.NONE

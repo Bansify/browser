@@ -1,0 +1,147 @@
+# Bansify Browser — ad and tracker hosts
+#
+# One host per line. A request is blocked when its host matches a line exactly or is a
+# subdomain of it. Comments (#) and blank lines are ignored.
+#
+# This is a curated starter list of widely known advertising, analytics and tracking hosts.
+# It is deliberately conservative: CDNs that also serve page assets (gstatic, fbcdn, cloudfront,
+# jsdelivr, unpkg, ajax.googleapis) are NOT listed, so sites keep working.
+# Main-frame requests are never blocked.
+
+# --- Google advertising and analytics ---
+doubleclick.net
+googleadservices.com
+googlesyndication.com
+google-analytics.com
+analytics.google.com
+adservice.google.com
+pagead2.googlesyndication.com
+partner.googleadservices.com
+2mdn.net
+admob.com
+app-measurement.com
+firebase-settings.crashlytics.com
+
+# --- Meta / Facebook ---
+connect.facebook.net
+an.facebook.com
+graph.facebook.com
+
+# --- Amazon ads ---
+amazon-adsystem.com
+assoc-amazon.com
+
+# --- Major ad exchanges and SSPs ---
+adnxs.com
+adsrvr.org
+rubiconproject.com
+pubmatic.com
+openx.net
+criteo.com
+criteo.net
+taboola.com
+outbrain.com
+smartadserver.com
+casalemedia.com
+contextweb.com
+indexww.com
+sharethrough.com
+teads.tv
+spotxchange.com
+spotx.tv
+yieldmo.com
+triplelift.com
+33across.com
+gumgum.com
+districtm.io
+sovrn.com
+lijit.com
+media.net
+adform.net
+advertising.com
+bing.com/bat.js
+clarity.ms
+ads.yahoo.com
+adtech.de
+adroll.com
+crwdcntrl.net
+exelator.com
+bluekai.com
+demdex.net
+omtrdc.net
+everesttech.net
+adobedtm.com
+krxd.net
+rlcdn.com
+agkn.com
+mathtag.com
+turn.com
+tapad.com
+simpli.fi
+zemanta.com
+nativeads.com
+revcontent.com
+mgid.com
+propellerads.com
+popads.net
+adcash.com
+exoclick.com
+juicyads.com
+trafficjunky.net
+
+# --- Mobile attribution and analytics ---
+appsflyer.com
+adjust.com
+branch.io
+kochava.com
+singular.net
+amplitude.com
+mixpanel.com
+segment.io
+segment.com
+heapanalytics.com
+fullstory.com
+hotjar.com
+inspectlet.com
+mouseflow.com
+luckyorange.com
+smartlook.com
+clarity.microsoft.com
+newrelic.com
+bugsnag.com
+sentry.io
+optimizely.com
+vwo.com
+kameleoon.com
+abtasty.com
+crazyegg.com
+quantserve.com
+quantcount.com
+scorecardresearch.com
+comscore.com
+nielsen.com
+imrworldwide.com
+chartbeat.com
+parsely.com
+chartbeat.net
+moatads.com
+adloox.com
+doubleverify.com
+iasds01.com
+adsafeprotected.com
+mookie1.com
+serving-sys.com
+flashtalking.com
+innovid.com
+tubemogul.com
+tremorhub.com
+spotxcdn.com
+
+# --- Push / interstitials / pop-under networks ---
+onesignal.com
+pushengage.com
+izooto.com
+cleverpush.com
+subscribers.com
+pushcrew.com
+sendpulse.com
