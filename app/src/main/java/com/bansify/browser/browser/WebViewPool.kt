@@ -8,7 +8,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
+import android.os.Message
 import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +21,9 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -51,11 +56,25 @@ class WebViewPool(
         fun onFileChooserRequested(filePathCallback: ValueCallback<Array<Uri>>, acceptTypes: Array<String>)
         fun onFindResults(activeMatchOrdinal: Int, numberOfMatches: Int)
         fun onOpenNewTabRequest(url: String, isIncognito: Boolean)
+
+        /** A site called window.open(): a WebView is already created and loading for this tab id. */
+        fun onPopupTabCreated(tabId: String, isIncognito: Boolean)
+
+        /** Main-frame load failure, including blocked certificate errors. */
+        fun onPageError(tabId: String, url: String, message: String, isSslError: Boolean)
+
+        /** The renderer process for this tab died (crash or OOM); the WebView is already gone. */
+        fun onRendererGone(tabId: String, didCrash: Boolean)
+
         fun onExternalUrlError(message: String)
     }
 
     private val webViews = mutableMapOf<String, WebView>()
     private val defaultUserAgents = mutableMapOf<String, String>()
+
+    /** Hosts an incognito tab actually visited, so their cookies can be removed when it closes. */
+    private val incognitoHosts = mutableSetOf<String>()
+    private var popupCounter = 0
     private var currentSettings: BrowserSettings = BrowserSettings()
 
     companion object {
@@ -279,6 +298,58 @@ class WebViewPool(
         webViews.keys.toList().forEach { destroyTab(it) }
     }
 
+    /**
+     * Builds the WebView a window.open() call will load into. It is registered in the pool
+     * under [popupId] so the tab the UI adds afterwards adopts this exact instance.
+     */
+    private fun createPopupWebView(
+        popupId: String,
+        parent: BrowserTab,
+        settings: BrowserSettings
+    ): WebView {
+        val popupTab = BrowserTab(
+            id = popupId,
+            url = BrowserTab.NEW_TAB_URL,
+            title = "New tab",
+            isIncognito = parent.isIncognito,
+            isDesktopSite = parent.isDesktopSite,
+            isSecure = true
+        )
+        val webView = createWebView(popupTab, settings)
+        webViews[popupId] = webView
+        return webView
+    }
+
+    /**
+     * Called when the last incognito tab closes. WebView has a single process-wide cookie jar,
+     * so isolation is done by refusing cookies while browsing privately (see
+     * [applySettingsToWebView]) and then removing whatever the visited hosts still hold.
+     */
+    fun clearIncognitoData() {
+        val cookieManager = CookieManager.getInstance()
+        val hosts = incognitoHosts.toList()
+        incognitoHosts.clear()
+        hosts.forEach { host ->
+            listOf("https://$host/", "http://$host/").forEach { url ->
+                val cookies = cookieManager.getCookie(url).orEmpty()
+                if (cookies.isBlank()) return@forEach
+                cookies.split(';').forEach { pair ->
+                    val name = pair.substringBefore('=', "").trim()
+                    if (name.isNotEmpty()) {
+                        cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/")
+                        cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/; Secure")
+                    }
+                }
+            }
+        }
+        cookieManager.flush()
+        webViews.values.firstOrNull()?.let { wv ->
+            wv.clearCache(true)
+            wv.clearFormData()
+            wv.clearHistory()
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(tab: BrowserTab, settings: BrowserSettings): WebView {
         val webView = WebView(context).apply {
@@ -324,6 +395,11 @@ class WebViewPool(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 val actualUrl = url ?: return
                 if (actualUrl == "about:blank") return
+                if (tab.isIncognito) {
+                    runCatching { Uri.parse(actualUrl).host }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { incognitoHosts.add(it) }
+                }
                 callbacks.onPageStarted(tab.id, actualUrl)
             }
 
@@ -342,6 +418,56 @@ class WebViewPool(
                     canGoForward = wv.canGoForward()
                 )
                 wv.postDelayed({ captureThumbnail(tab.id) }, 250L)
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                if (request?.isForMainFrame != true) return
+                val description = error?.description?.toString().orEmpty()
+                    .ifBlank { "The page could not be loaded" }
+                callbacks.onPageError(
+                    tabId = tab.id,
+                    url = request.url?.toString().orEmpty(),
+                    message = description,
+                    isSslError = false
+                )
+            }
+
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: SslErrorHandler?,
+                error: SslError?
+            ) {
+                // A browser must never silently continue past a bad certificate.
+                handler?.cancel()
+                val host = runCatching { Uri.parse(error?.url.orEmpty()).host }.getOrNull()
+                callbacks.onPageError(
+                    tabId = tab.id,
+                    url = error?.url.orEmpty(),
+                    message = "The certificate for ${host ?: "this site"} is not trusted, so the connection was blocked.",
+                    isSslError = true
+                )
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: RenderProcessGoneDetail?
+            ): Boolean {
+                // Returning true tells the framework we handled it: the app keeps running
+                // instead of being killed along with the dead renderer.
+                val didCrash = detail?.didCrash() ?: true
+                webViews.remove(tab.id)
+                defaultUserAgents.remove(tab.id)
+                runCatching {
+                    (view?.parent as? ViewGroup)?.removeView(view)
+                    view?.stopLoading()
+                    view?.destroy()
+                }
+                callbacks.onRendererGone(tab.id, didCrash)
+                return true
             }
         }
 
@@ -421,6 +547,22 @@ class WebViewPool(
                 callbacks.onFileChooserRequested(filePathCallback, acceptTypes)
                 return true
             }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?
+            ): Boolean {
+                if (resultMsg == null) return false
+                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                val popupId = "popup_${System.currentTimeMillis()}_${popupCounter++}"
+                val popup = createPopupWebView(popupId, tab, currentSettings)
+                transport.webView = popup
+                resultMsg.sendToTarget()
+                callbacks.onPopupTabCreated(popupId, tab.isIncognito)
+                return true
+            }
         }
 
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
@@ -486,6 +628,8 @@ class WebViewPool(
         ws.allowContentAccess = true
         ws.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         ws.cacheMode = if (tab.isIncognito) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
+        // window.open() / target=_blank land in onCreateWindow below instead of a dead end.
+        ws.setSupportMultipleWindows(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ws.safeBrowsingEnabled = settings.safeBrowsingLevel != SafeBrowsingLevel.NONE

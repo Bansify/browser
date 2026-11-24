@@ -141,6 +141,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _loadUrlCommands = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 8)
     val loadUrlCommands = _loadUrlCommands.asSharedFlow()
 
+    private val _pageError = MutableStateFlow<PageError?>(null)
+    val pageError: StateFlow<PageError?> = _pageError.asStateFlow()
+
     private var groupCounter = 1
     private val groupColors = listOf(
         0xFF8AB4F8L,
@@ -225,6 +228,55 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             BrowserTab.NEW_TAB_URL
         }
         openUrlInActiveTab(target)
+    }
+
+    /**
+     * A site called window.open(). The WebView already exists in the pool under [tabId] and is
+     * loading the popup, so this only adds the tab entry the UI needs to show it.
+     */
+    fun adoptPopupTab(tabId: String, isIncognito: Boolean) {
+        if (_tabs.value.any { it.id == tabId }) {
+            _activeTabId.value = tabId
+            return
+        }
+        val popupTab = BrowserTab(
+            id = tabId,
+            url = BrowserTab.NEW_TAB_URL,
+            title = "New tab",
+            isIncognito = isIncognito,
+            isSecure = true,
+            isLoading = true,
+            progress = 5
+        )
+        _tabs.update { it + popupTab }
+        _activeTabId.value = tabId
+        _overlay.value = BrowserOverlay.None
+    }
+
+    /** Main-frame failure (network or blocked certificate) for the active tab. */
+    fun onPageError(tabId: String, url: String, message: String, isSslError: Boolean) {
+        _tabs.update { tabs ->
+            tabs.map { if (it.id == tabId) it.copy(isLoading = false, progress = 100) else it }
+        }
+        _pageError.value = PageError(
+            tabId = tabId,
+            url = url,
+            message = message,
+            isSslError = isSslError
+        )
+    }
+
+    fun dismissPageError() {
+        _pageError.value = null
+    }
+
+    /** The renderer for this tab died; the WebView is already destroyed, so drop the tab. */
+    fun onRendererGone(tabId: String, didCrash: Boolean) {
+        if (_pageError.value?.tabId == tabId) _pageError.value = null
+        closeTab(tabId, allowUndo = false)
+        showSnackbar(
+            message = if (didCrash) "This tab stopped responding and was closed" else "This tab ran out of memory and was closed"
+        )
     }
 
     fun createNewTab(url: String = BrowserTab.NEW_TAB_URL, isIncognito: Boolean = false) {
@@ -736,3 +788,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 }
+
+/** A main-frame load failure shown over the page instead of a blank screen. */
+data class PageError(
+    val tabId: String,
+    val url: String,
+    val message: String,
+    val isSslError: Boolean
+)
