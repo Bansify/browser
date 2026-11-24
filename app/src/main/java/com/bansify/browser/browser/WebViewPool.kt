@@ -51,17 +51,6 @@ class WebViewPool(
 
     private val adBlocker = AdBlocker(context)
 
-    /** Live pool for the current process, so the activity can save WebView state on rotation/kill. */
-    companion object {
-        @Volatile
-        var active: WebViewPool? = null
-            private set
-
-        /** State handed back by the activity after a configuration change or process restore. */
-        @Volatile
-        var pendingState: Bundle? = null
-    }
-
     init {
         active = this
     }
@@ -119,6 +108,15 @@ class WebViewPool(
     private var currentSettings: BrowserSettings = BrowserSettings()
 
     companion object {
+        /** Live pool for the process, so the activity can save WebView state on rotation/kill. */
+        @Volatile
+        var active: WebViewPool? = null
+            private set
+
+        /** State handed back by the activity after a configuration change or process restore. */
+        @Volatile
+        var pendingState: Bundle? = null
+
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     }
