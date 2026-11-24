@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import com.bansify.browser.browser.WebViewPool
 import com.bansify.browser.ui.BrowserApp
 import com.bansify.browser.viewmodel.BrowserViewModel
 
@@ -15,12 +16,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Hand the saved WebView state to the pool before the first tab is composed, so a
+        // rotation or a process restore keeps scroll position, form input and history.
+        WebViewPool.pendingState = savedInstanceState?.getBundle("webview_pool_state")
         enableEdgeToEdge()
         handleIncomingIntent(intent)
 
         setContent {
             BrowserApp(viewModel = viewModel)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        val poolState = Bundle()
+        WebViewPool.active?.saveStateTo(poolState)
+        outState.putBundle("webview_pool_state", poolState)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onNewIntent(intent: Intent) {

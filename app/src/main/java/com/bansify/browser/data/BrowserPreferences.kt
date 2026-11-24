@@ -42,6 +42,8 @@ class BrowserPreferences(private val context: Context) {
         val COOKIES_ENABLED = booleanPreferencesKey("cookies_enabled")
         val POPUPS_ALLOWED = booleanPreferencesKey("popups_allowed")
         val LOAD_IMAGES = booleanPreferencesKey("load_images")
+        val AD_BLOCK_ENABLED = booleanPreferencesKey("ad_block_enabled")
+        val SITE_PERMISSION_PROMPTS = booleanPreferencesKey("site_permission_prompts")
         val DEFAULT_DESKTOP_SITE = booleanPreferencesKey("default_desktop_site")
         val MEDIA_AUTOPLAY = booleanPreferencesKey("media_autoplay")
         val TEXT_ZOOM_PERCENT = intPreferencesKey("text_zoom_percent")
@@ -89,6 +91,8 @@ class BrowserPreferences(private val context: Context) {
         cookiesEnabled = prefs[Keys.COOKIES_ENABLED] ?: true,
         popupsAllowed = prefs[Keys.POPUPS_ALLOWED] ?: false,
         loadImagesEnabled = prefs[Keys.LOAD_IMAGES] ?: true,
+        adBlockEnabled = prefs[Keys.AD_BLOCK_ENABLED] ?: true,
+        sitePermissionPromptsEnabled = prefs[Keys.SITE_PERMISSION_PROMPTS] ?: true,
         defaultDesktopSite = prefs[Keys.DEFAULT_DESKTOP_SITE] ?: false,
         mediaAutoplayEnabled = prefs[Keys.MEDIA_AUTOPLAY] ?: true,
         textZoomPercent = prefs[Keys.TEXT_ZOOM_PERCENT] ?: 100,
@@ -135,6 +139,8 @@ class BrowserPreferences(private val context: Context) {
             prefs[Keys.COOKIES_ENABLED] = updated.cookiesEnabled
             prefs[Keys.POPUPS_ALLOWED] = updated.popupsAllowed
             prefs[Keys.LOAD_IMAGES] = updated.loadImagesEnabled
+            prefs[Keys.AD_BLOCK_ENABLED] = updated.adBlockEnabled
+            prefs[Keys.SITE_PERMISSION_PROMPTS] = updated.sitePermissionPromptsEnabled
             prefs[Keys.DEFAULT_DESKTOP_SITE] = updated.defaultDesktopSite
             prefs[Keys.MEDIA_AUTOPLAY] = updated.mediaAutoplayEnabled
             prefs[Keys.TEXT_ZOOM_PERCENT] = updated.textZoomPercent

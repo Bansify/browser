@@ -3,6 +3,7 @@ package com.bansify.browser.viewmodel
 import android.app.Application
 import android.graphics.Bitmap
 import android.webkit.CookieManager
+import android.webkit.SafeBrowsingResponse
 import android.webkit.WebStorage
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +25,9 @@ import com.bansify.browser.data.HistoryEntity
 import com.bansify.browser.data.JsDialogState
 import com.bansify.browser.data.ReadingModeContent
 import com.bansify.browser.data.SettingsSubScreen
+import com.bansify.browser.data.SitePermission
+import com.bansify.browser.data.SitePermissionDecision
+import com.bansify.browser.data.SitePermissionStore
 import com.bansify.browser.data.ShortcutEntity
 import com.bansify.browser.data.SnackbarEvent
 import com.bansify.browser.data.ThirdPartyCookiePolicy
@@ -144,6 +148,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _pageError = MutableStateFlow<PageError?>(null)
     val pageError: StateFlow<PageError?> = _pageError.asStateFlow()
 
+    private val sitePermissionStore = SitePermissionStore(getApplication())
+
+    /** Remembered per-site decisions, newest first. */
+    val sitePermissionDecisions: StateFlow<List<SitePermissionDecision>> =
+        sitePermissionStore.decisions.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _pendingPermission = MutableStateFlow<PendingSitePermission?>(null)
+    val pendingPermission: StateFlow<PendingSitePermission?> = _pendingPermission.asStateFlow()
+
+    private val _safeBrowsingWarning = MutableStateFlow<SafeBrowsingWarning?>(null)
+    val safeBrowsingWarning: StateFlow<SafeBrowsingWarning?> = _safeBrowsingWarning.asStateFlow()
+
     private var groupCounter = 1
     private val groupColors = listOf(
         0xFF8AB4F8L,
@@ -228,6 +244,73 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             BrowserTab.NEW_TAB_URL
         }
         openUrlInActiveTab(target)
+    }
+
+    // --- Site permissions -------------------------------------------------
+
+    /**
+     * A page asked for camera, microphone or location. A remembered decision answers straight
+     * away; otherwise the user gets a dialog. If prompts are switched off everything is denied.
+     */
+    fun onSitePermissionRequest(
+        tabId: String,
+        origin: String,
+        permission: SitePermission,
+        onResult: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val remembered = sitePermissionStore.decisionFor(origin, permission)
+            when {
+                remembered == true -> onResult(true)
+                remembered == false -> onResult(false)
+                !settings.value.sitePermissionPromptsEnabled -> onResult(false)
+                else -> _pendingPermission.value = PendingSitePermission(
+                    tabId = tabId,
+                    origin = origin,
+                    permission = permission,
+                    onResult = onResult
+                )
+            }
+        }
+    }
+
+    fun answerPendingPermission(grant: Boolean, remember: Boolean) {
+        val pending = _pendingPermission.value ?: return
+        _pendingPermission.value = null
+        if (remember) {
+            viewModelScope.launch {
+                sitePermissionStore.remember(pending.origin, pending.permission, grant)
+            }
+        }
+        pending.onResult(grant)
+    }
+
+    fun forgetSitePermission(origin: String) {
+        viewModelScope.launch { sitePermissionStore.forget(origin) }
+    }
+
+    fun forgetAllSitePermissions() {
+        viewModelScope.launch { sitePermissionStore.forgetAll() }
+    }
+
+    // --- Safe Browsing -----------------------------------------------------
+
+    fun onSafeBrowsingHit(
+        tabId: String,
+        url: String,
+        threatType: Int,
+        response: SafeBrowsingResponse
+    ) {
+        _safeBrowsingWarning.value = SafeBrowsingWarning(tabId, url, threatType, response)
+    }
+
+    /** [proceed] = the user chose to load the flagged page anyway. */
+    fun resolveSafeBrowsing(proceed: Boolean) {
+        val warning = _safeBrowsingWarning.value ?: return
+        _safeBrowsingWarning.value = null
+        runCatching {
+            if (proceed) warning.response.proceed(true) else warning.response.backToSafety(true)
+        }
     }
 
     /**
@@ -796,3 +879,28 @@ data class PageError(
     val message: String,
     val isSslError: Boolean
 )
+
+/** A permission request waiting for the user's answer. */
+data class PendingSitePermission(
+    val tabId: String,
+    val origin: String,
+    val permission: SitePermission,
+    val onResult: (Boolean) -> Unit
+)
+
+/** Safe Browsing flagged a page; the user decides whether to continue. */
+data class SafeBrowsingWarning(
+    val tabId: String,
+    val url: String,
+    val threatType: Int,
+    val response: SafeBrowsingResponse
+) {
+    val label: String
+        get() = when (threatType) {
+            2 -> "Phishing page"
+            3 -> "Page hosting unwanted software"
+            4 -> "Page with harmful software"
+            5 -> "Unwanted software"
+            else -> "Dangerous page"
+        }
+}
