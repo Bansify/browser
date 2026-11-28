@@ -67,6 +67,15 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # Robolectric downloads its android-all runtime from Maven Central on first use. That
+      # fetch is the one flaky part of this job, so the jars are cached across runs.
+      - name: Cache Robolectric runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ hashFiles('app/src/test/resources/robolectric.properties') }}
+          restore-keys: robolectric-${{ runner.os }}-
+
       - name: Unit tests
         run: |
           set -o pipefail
