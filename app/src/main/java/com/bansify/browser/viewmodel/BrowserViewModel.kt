@@ -1,6 +1,13 @@
 package com.bansify.browser.viewmodel
 
 import android.app.Application
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Environment
+import androidx.core.content.FileProvider
+import java.io.File
 import android.graphics.Bitmap
 import android.webkit.CookieManager
 import android.webkit.SafeBrowsingResponse
@@ -171,6 +178,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     )
 
     init {
+        watchDownloads()
         viewModelScope.launch {
             repository.ensureDefaultShortcuts()
             val saved = repository.loadSavedTabs()
@@ -587,7 +595,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         url: String,
         mimeType: String,
         sizeBytes: Long,
-        localPath: String
+        localPath: String,
+        managerId: Long = -1L
     ) {
         viewModelScope.launch {
             repository.insertDownload(
@@ -597,15 +606,194 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     mimeType = mimeType,
                     sizeBytes = sizeBytes,
                     category = UrlUtils.inferDownloadCategory(fileName, mimeType),
-                    status = "Completed",
-                    localPath = localPath
+                    status = if (managerId >= 0) "Downloading" else "Completed",
+                    localPath = localPath,
+                    managerId = managerId
                 )
             )
-            showSnackbar(
-                message = "Downloaded $fileName",
-                actionLabel = "Open",
-                onAction = { openOverlay(BrowserOverlay.Downloads) }
-            )
+            if (managerId >= 0) {
+                showSnackbar(
+                    message = "Downloading $fileName",
+                    actionLabel = "View",
+                    onAction = { openOverlay(BrowserOverlay.Downloads) }
+                )
+            } else {
+                showSnackbar(
+                    message = "Saved $fileName",
+                    actionLabel = "View",
+                    onAction = { openOverlay(BrowserOverlay.Downloads) }
+                )
+            }
+        }
+    }
+
+    // --- Downloads: live progress, cancel, retry, open, share ----------------
+
+    private val _downloadProgress = MutableStateFlow<Map<Long, Float>>(emptyMap())
+    val downloadProgress: StateFlow<Map<Long, Float>> = _downloadProgress.asStateFlow()
+
+    private val downloadManager: DownloadManager?
+        get() = getApplication<Application>()
+            .getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+
+    /**
+     * Polls DownloadManager while anything is downloading, so the Downloads screen shows a real
+     * percentage and a finished download flips to "Completed" on its own.
+     */
+    private fun watchDownloads() {
+        viewModelScope.launch {
+            val finishedStatuses = mutableMapOf<Long, String>()
+            while (true) {
+                kotlinx.coroutines.delay(1500)
+                val active = runCatching { repository.getActiveDownloads() }.getOrDefault(emptyList())
+                if (active.isEmpty()) {
+                    if (_downloadProgress.value.isNotEmpty()) _downloadProgress.value = emptyMap()
+                    continue
+                }
+                val dm = downloadManager ?: continue
+                val progress = mutableMapOf<Long, Float>()
+                active.forEach { row ->
+                    runCatching {
+                        dm.query(DownloadManager.Query().setFilterById(row.managerId)).use { cursor ->
+                            if (cursor == null || !cursor.moveToFirst()) return@use
+                            val total = cursor.getLong(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                            )
+                            val done = cursor.getLong(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                            )
+                            val statusCode = cursor.getInt(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+                            )
+                            progress[row.id] =
+                                if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+                            when (statusCode) {
+                                DownloadManager.STATUS_SUCCESSFUL -> {
+                                    if (finishedStatuses[row.id] != "Completed") {
+                                        finishedStatuses[row.id] = "Completed"
+                                        viewModelScope.launch {
+                                            repository.updateDownloadStatus(
+                                                row.id,
+                                                "Completed",
+                                                if (total > 0) total else done,
+                                                row.localPath
+                                            )
+                                            showSnackbar("Downloaded ${row.fileName}")
+                                        }
+                                    }
+                                }
+                                DownloadManager.STATUS_FAILED -> {
+                                    if (finishedStatuses[row.id] != "Failed") {
+                                        finishedStatuses[row.id] = "Failed"
+                                        viewModelScope.launch {
+                                            repository.updateDownloadStatus(row.id, "Failed", done, row.localPath)
+                                            showSnackbar("Download failed: ${row.fileName}")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _downloadProgress.value = progress
+            }
+        }
+    }
+
+    fun cancelDownload(id: Long) {
+        viewModelScope.launch {
+            val row = repository.getDownloadById(id) ?: return@launch
+            if (row.managerId >= 0) runCatching { downloadManager?.remove(row.managerId) }
+            repository.deleteDownload(id)
+            _downloadProgress.update { it - id }
+            showSnackbar("Download cancelled")
+        }
+    }
+
+    fun retryDownload(id: Long) {
+        viewModelScope.launch {
+            val row = repository.getDownloadById(id) ?: return@launch
+            val dm = downloadManager ?: return@launch
+            val newId = runCatching {
+                dm.enqueue(
+                    DownloadManager.Request(Uri.parse(row.url)).apply {
+                        setMimeType(row.mimeType)
+                        setTitle(row.fileName)
+                        setDescription("Downloading with Bansify Browser")
+                        setNotificationVisibility(
+                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                        )
+                        setDestinationInExternalPublicDir(
+                            Environment.DIRECTORY_DOWNLOADS,
+                            row.fileName
+                        )
+                    }
+                )
+            }.getOrNull()
+            if (newId == null) {
+                showSnackbar("Could not restart this download")
+                return@launch
+            }
+            repository.updateDownloadManagerId(id, newId, "Downloading")
+            showSnackbar("Retrying ${row.fileName}")
+        }
+    }
+
+    fun openDownloadedFile(id: Long) {
+        viewModelScope.launch {
+            val row = repository.getDownloadById(id) ?: return@launch
+            val file = File(row.localPath)
+            if (row.localPath.isBlank() || !file.exists()) {
+                showSnackbar("This file is no longer on the device")
+                return@launch
+            }
+            val app = getApplication<Application>()
+            val uri = runCatching {
+                FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+            }.getOrNull()
+            if (uri == null) {
+                showSnackbar("Cannot open this file")
+                return@launch
+            }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, row.mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { app.startActivity(intent) }
+                .onFailure { showSnackbar("No app can open this file") }
+        }
+    }
+
+    fun shareDownloadedFile(id: Long) {
+        viewModelScope.launch {
+            val row = repository.getDownloadById(id) ?: return@launch
+            val app = getApplication<Application>()
+            val file = File(row.localPath)
+            val uri = if (row.localPath.isNotBlank() && file.exists()) {
+                runCatching {
+                    FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                }.getOrNull()
+            } else {
+                null
+            }
+            val intent = if (uri != null) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = row.mimeType
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TEXT, row.fileName)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, row.url)
+                }
+            }
+            runCatching {
+                app.startActivity(
+                    Intent.createChooser(intent, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }.onFailure { showSnackbar("Nothing to share with") }
         }
     }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths a downloaded file can be shared or opened from. Nothing else is exposed. -->
+<paths>
+    <external-path
+        name="public_downloads"
+        path="Download/" />
+    <external-files-path
+        name="app_downloads"
+        path="Download/" />
+    <external-files-path
+        name="saved_pages"
+        path="." />
+    <cache-path
+        name="cache"
+        path="." />
+</paths>

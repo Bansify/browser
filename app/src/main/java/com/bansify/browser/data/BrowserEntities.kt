@@ -30,7 +30,9 @@ data class DownloadEntity(
     val category: String = "Other", // Pages, Images, Documents, Other
     val status: String = "Completed", // Downloading, Completed, Failed
     val downloadedAt: Long = System.currentTimeMillis(),
-    val localPath: String = ""
+    val localPath: String = "",
+    /** DownloadManager id, so progress, cancel and retry can act on the real download. */
+    val managerId: Long = -1L
 )
 
 @Entity(tableName = "shortcuts")

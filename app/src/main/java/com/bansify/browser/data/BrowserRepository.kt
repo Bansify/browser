@@ -115,6 +115,14 @@ class BrowserRepository(
         dao.updateDownloadStatus(id, status, sizeBytes, localPath)
     }
 
+    suspend fun getDownloadById(id: Long): DownloadEntity? = dao.getDownloadById(id)
+
+    suspend fun getActiveDownloads(): List<DownloadEntity> = dao.getActiveDownloads()
+
+    suspend fun updateDownloadManagerId(id: Long, managerId: Long, status: String) {
+        dao.updateDownloadManagerId(id, managerId, status)
+    }
+
     suspend fun deleteDownload(id: Long) = dao.deleteDownloadById(id)
 
     suspend fun clearAllDownloads() = dao.clearAllDownloads()
