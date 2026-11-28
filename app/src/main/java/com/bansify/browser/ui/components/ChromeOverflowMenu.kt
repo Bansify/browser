@@ -41,6 +41,8 @@ import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.FindInPage
+import androidx.compose.material.icons.outlined.Print
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
@@ -102,6 +104,9 @@ fun ChromeOverflowMenu(
     onRecentTabs: () -> Unit,
     onShare: () -> Unit,
     onFindInPage: () -> Unit,
+    onPrint: () -> Unit = {},
+    onAllowAdsOnThisSite: () -> Unit = {},
+    showAllowAds: Boolean = false,
     onTranslate: () -> Unit,
     onReadingMode: () -> Unit,
     onAddToHomeScreen: () -> Unit,
@@ -383,6 +388,28 @@ fun ChromeOverflowMenu(
                                 onFindInPage()
                             }
                         )
+
+                        ChromeMenuRow(
+                            icon = Icons.Outlined.Print,
+                            label = "Print",
+                            testTag = "menu_print",
+                            onClick = {
+                                onDismiss()
+                                onPrint()
+                            }
+                        )
+
+                        if (showAllowAds) {
+                            ChromeMenuRow(
+                                icon = Icons.Outlined.Shield,
+                                label = "Allow ads on this site",
+                                testTag = "menu_allow_ads",
+                                onClick = {
+                                    onDismiss()
+                                    onAllowAdsOnThisSite()
+                                }
+                            )
+                        }
 
                         ChromeMenuRow(
                             icon = Icons.Outlined.Translate,

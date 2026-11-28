@@ -161,6 +161,35 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val sitePermissionDecisions: StateFlow<List<SitePermissionDecision>> =
         sitePermissionStore.decisions.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Hard cap so a tab-hoarding session cannot exhaust memory; the WebView renderer dies first. */
+    private val MAX_TABS = 25
+
+    /** Hosts where the user turned ad blocking off. */
+    val adBlockAllowlist: StateFlow<Set<String>> =
+        sitePermissionStore.adBlockAllowlist.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    fun allowAdsForActiveTab() {
+        val host = runCatching { android.net.Uri.parse(activeTab.value.url).host }
+            .getOrNull()
+            .orEmpty()
+        if (host.isBlank()) {
+            showSnackbar("This page has no site to allow")
+            return
+        }
+        viewModelScope.launch {
+            sitePermissionStore.allowAds(host)
+            showSnackbar("Ads allowed on $host")
+        }
+    }
+
+    fun disallowAds(host: String) {
+        viewModelScope.launch { sitePermissionStore.disallowAds(host) }
+    }
+
+    fun clearAdBlockAllowlist() {
+        viewModelScope.launch { sitePermissionStore.clearAdBlockAllowlist() }
+    }
+
     private val _pendingPermission = MutableStateFlow<PendingSitePermission?>(null)
     val pendingPermission: StateFlow<PendingSitePermission?> = _pendingPermission.asStateFlow()
 
@@ -223,7 +252,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val resolved = UrlUtils.resolveInputToUrl(
             rawInput = trimmed,
             searchEngine = currentSettings.searchEngine,
-            httpsFirst = currentSettings.httpsFirstEnabled
+            httpsFirst = currentSettings.httpsFirstEnabled,
+            customTemplate = currentSettings.customSearchTemplate
         )
         updateTab(tab.id) {
             it.copy(
@@ -371,11 +401,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun createNewTab(url: String = BrowserTab.NEW_TAB_URL, isIncognito: Boolean = false) {
+        if (_tabs.value.size >= MAX_TABS) {
+            showSnackbar(
+                message = "Tab limit reached ($MAX_TABS). Close a tab to open another.",
+                actionLabel = "Tabs",
+                onAction = { openOverlay(BrowserOverlay.TabSwitcher()) }
+            )
+            return
+        }
         val currentSettings = settings.value
         val resolved = if (url == BrowserTab.NEW_TAB_URL) {
             BrowserTab.NEW_TAB_URL
         } else {
-            UrlUtils.resolveInputToUrl(url, currentSettings.searchEngine, currentSettings.httpsFirstEnabled)
+            UrlUtils.resolveInputToUrl(
+                url,
+                currentSettings.searchEngine,
+                currentSettings.httpsFirstEnabled,
+                currentSettings.customSearchTemplate
+            )
         }
         val newTab = BrowserTab(
             url = resolved,

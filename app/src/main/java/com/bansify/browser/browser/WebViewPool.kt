@@ -56,6 +56,23 @@ class WebViewPool(
     }
 
     fun adBlockerInstance(): AdBlocker = adBlocker
+
+    /**
+     * Gives the visible tab the important renderer priority and demotes the rest, so a stack of
+     * background tabs is reclaimed by the system before the tab the user is reading.
+     */
+    fun updateRendererPriorities(activeTabId: String?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        webViews.forEach { (tabId, webView) ->
+            runCatching {
+                if (tabId == activeTabId) {
+                    webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+                } else {
+                    webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, true)
+                }
+            }
+        }
+    }
     interface Callbacks {
         fun onPageStarted(tabId: String, url: String)
         fun onPageFinished(tabId: String, url: String, title: String, canGoBack: Boolean, canGoForward: Boolean)
@@ -113,6 +130,9 @@ class WebViewPool(
     private val incognitoHosts = mutableSetOf<String>()
     private var popupCounter = 0
     private var currentSettings: BrowserSettings = BrowserSettings()
+
+    /** Hosts the user allowed ads on; kept in sync by the UI so interception stays synchronous. */
+    var adsAllowedFor: (String) -> Boolean = { false }
 
     companion object {
         /** Live pool for the process, so the activity can save WebView state on rotation/kill. */
@@ -438,6 +458,8 @@ class WebViewPool(
                 if (request == null) return null
                 if (!currentSettings.adBlockEnabled) return null
                 val url = request.url?.toString() ?: return null
+                val host = request.url?.host.orEmpty()
+                if (host.isNotBlank() && adsAllowedFor(host)) return null
                 return if (adBlocker.shouldBlock(url, request.isForMainFrame)) {
                     adBlocker.emptyResponse()
                 } else {
