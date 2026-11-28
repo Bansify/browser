@@ -63,7 +63,14 @@ class WebViewPool(
         fun onTitleReceived(tabId: String, title: String)
         fun onFaviconReceived(tabId: String, icon: Bitmap?)
         fun onThumbnailCaptured(tabId: String, bitmap: Bitmap)
-        fun onDownloadStarted(fileName: String, url: String, mimeType: String, sizeBytes: Long, localPath: String)
+        fun onDownloadStarted(
+            fileName: String,
+            url: String,
+            mimeType: String,
+            sizeBytes: Long,
+            localPath: String,
+            managerId: Long
+        )
         fun onJsDialog(dialog: JsDialogState)
         fun onShowCustomView(view: View, callback: WebChromeClient.CustomViewCallback)
         fun onHideCustomView()
@@ -296,7 +303,8 @@ class WebViewPool(
                 url = url,
                 mimeType = "multipart/related",
                 sizeBytes = size,
-                localPath = actualPath
+                localPath = actualPath,
+                managerId = -1L
             )
         }
     }
@@ -702,6 +710,7 @@ class WebViewPool(
             val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
             val resolvedMime = mimeType.ifBlank { "application/octet-stream" }
             var localPath = ""
+            var managerId = -1L
             if (url.startsWith("http://", ignoreCase = true) ||
                 url.startsWith("https://", ignoreCase = true)
             ) {
@@ -719,7 +728,7 @@ class WebViewPool(
                         setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                     }
                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                    dm.enqueue(request)
+                    managerId = dm.enqueue(request)
                     localPath = File(
                         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                         fileName
@@ -731,7 +740,8 @@ class WebViewPool(
                 url = url,
                 mimeType = resolvedMime,
                 sizeBytes = contentLength.coerceAtLeast(0L),
-                localPath = localPath
+                localPath = localPath,
+                managerId = managerId
             )
         }
 

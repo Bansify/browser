@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -13,7 +15,7 @@ import androidx.room.RoomDatabase
         ShortcutEntity::class,
         SavedTabEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class BrowserDatabase : RoomDatabase() {
@@ -23,13 +25,21 @@ abstract class BrowserDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: BrowserDatabase? = null
 
+        /** Adds the DownloadManager id to existing download rows without dropping user data. */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE downloads ADD COLUMN managerId INTEGER NOT NULL DEFAULT -1")
+            }
+        }
+
         fun getInstance(context: Context): BrowserDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     BrowserDatabase::class.java,
                     "bansify_browser.db"
-                ).fallbackToDestructiveMigration(dropAllTables = true)
+                ).addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }

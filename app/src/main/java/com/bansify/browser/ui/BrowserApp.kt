@@ -111,6 +111,7 @@ fun BrowserApp(viewModel: BrowserViewModel) {
     val pendingPermission by viewModel.pendingPermission.collectAsStateWithLifecycle()
     val safeBrowsingWarning by viewModel.safeBrowsingWarning.collectAsStateWithLifecycle()
     val sitePermissionDecisions by viewModel.sitePermissionDecisions.collectAsStateWithLifecycle()
+    val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
@@ -213,9 +214,10 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                     url: String,
                     mimeType: String,
                     sizeBytes: Long,
-                    localPath: String
+                    localPath: String,
+                    managerId: Long
                 ) {
-                    viewModel.onDownloadRecorded(fileName, url, mimeType, sizeBytes, localPath)
+                    viewModel.onDownloadRecorded(fileName, url, mimeType, sizeBytes, localPath, managerId)
                 }
 
                 override fun onJsDialog(dialog: JsDialogState) {
@@ -741,7 +743,11 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                         downloads = downloads,
                         onClose = { viewModel.closeOverlay() },
                         onOpenDownloadUrl = { url -> viewModel.openUrlInActiveTab(url) },
-                        onShareDownload = { dl -> shareText(dl.fileName, dl.url) },
+                        onShareDownload = { dl -> viewModel.shareDownloadedFile(dl.id) },
+                        downloadProgress = downloadProgress,
+                        onOpenFile = { id -> viewModel.openDownloadedFile(id) },
+                        onCancelDownload = { id -> viewModel.cancelDownload(id) },
+                        onRetryDownload = { id -> viewModel.retryDownload(id) },
                         onDeleteDownload = { id -> viewModel.deleteDownload(id) },
                         onOpenDownloadsSettings = {
                             viewModel.openOverlay(BrowserOverlay.Settings(SettingsSubScreen.DOWNLOADS_SETTINGS))

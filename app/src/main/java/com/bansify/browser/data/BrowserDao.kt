@@ -54,6 +54,15 @@ interface BrowserDao {
     @Query("UPDATE downloads SET status = :status, sizeBytes = :sizeBytes, localPath = :localPath WHERE id = :id")
     suspend fun updateDownloadStatus(id: Long, status: String, sizeBytes: Long, localPath: String)
 
+    @Query("SELECT * FROM downloads WHERE id = :id")
+    suspend fun getDownloadById(id: Long): DownloadEntity?
+
+    @Query("SELECT * FROM downloads WHERE status = 'Downloading' AND managerId >= 0")
+    suspend fun getActiveDownloads(): List<DownloadEntity>
+
+    @Query("UPDATE downloads SET managerId = :managerId, status = :status WHERE id = :id")
+    suspend fun updateDownloadManagerId(id: Long, managerId: Long, status: String)
+
     @Query("DELETE FROM downloads WHERE id = :id")
     suspend fun deleteDownloadById(id: Long)
 

@@ -36,6 +36,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -65,7 +66,11 @@ fun DownloadsScreen(
     onOpenDownloadUrl: (String) -> Unit,
     onShareDownload: (DownloadEntity) -> Unit,
     onDeleteDownload: (Long) -> Unit,
-    onOpenDownloadsSettings: () -> Unit
+    onOpenDownloadsSettings: () -> Unit,
+    downloadProgress: Map<Long, Float> = emptyMap(),
+    onOpenFile: (Long) -> Unit = {},
+    onCancelDownload: (Long) -> Unit = {},
+    onRetryDownload: (Long) -> Unit = {}
 ) {
     BackHandler { onClose() }
 
@@ -190,7 +195,13 @@ fun DownloadsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenDownloadUrl(item.url) }
+                                .clickable {
+                                    if (item.status == "Completed" && item.localPath.isNotBlank()) {
+                                        onOpenFile(item.id)
+                                    } else {
+                                        onOpenDownloadUrl(item.url)
+                                    }
+                                }
                                 .padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -218,12 +229,38 @@ fun DownloadsScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "${UrlUtils.formatFileSize(item.sizeBytes)} • ${UrlUtils.extractShortDomain(item.url)} • ${UrlUtils.formatShortDate(item.downloadedAt)}",
+                                    text = buildString {
+                                        append(UrlUtils.formatFileSize(item.sizeBytes))
+                                        append(" • ")
+                                        append(UrlUtils.extractShortDomain(item.url))
+                                        append(" • ")
+                                        append(
+                                            when (item.status) {
+                                                "Downloading" -> {
+                                                    val pct = ((downloadProgress[item.id] ?: 0f) * 100).toInt()
+                                                    "Downloading $pct%"
+                                                }
+                                                "Failed" -> "Failed"
+                                                else -> UrlUtils.formatShortDate(item.downloadedAt)
+                                            }
+                                        )
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (item.status == "Failed") {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                if (item.status == "Downloading") {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { downloadProgress[item.id] ?: 0f },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                             Box {
                                 IconButton(onClick = { itemMenu = true }) {
@@ -237,6 +274,33 @@ fun DownloadsScreen(
                                     expanded = itemMenu,
                                     onDismissRequest = { itemMenu = false }
                                 ) {
+                                    if (item.status == "Completed" && item.localPath.isNotBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Open file") },
+                                            onClick = {
+                                                itemMenu = false
+                                                onOpenFile(item.id)
+                                            }
+                                        )
+                                    }
+                                    if (item.status == "Downloading") {
+                                        DropdownMenuItem(
+                                            text = { Text("Cancel download", color = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                itemMenu = false
+                                                onCancelDownload(item.id)
+                                            }
+                                        )
+                                    }
+                                    if (item.status == "Failed") {
+                                        DropdownMenuItem(
+                                            text = { Text("Retry") },
+                                            onClick = {
+                                                itemMenu = false
+                                                onRetryDownload(item.id)
+                                            }
+                                        )
+                                    }
                                     DropdownMenuItem(
                                         text = { Text("Open source page") },
                                         onClick = {
