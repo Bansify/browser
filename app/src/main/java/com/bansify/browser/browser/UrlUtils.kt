@@ -15,14 +15,15 @@ object UrlUtils {
     fun resolveInputToUrl(
         rawInput: String,
         searchEngine: SearchEngine,
-        httpsFirst: Boolean
+        httpsFirst: Boolean,
+        customTemplate: String? = null
     ): String {
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return BrowserTab.NEW_TAB_URL
 
         // Disallow javascript: injection from Omnibox for safety
         if (trimmed.startsWith("javascript:", ignoreCase = true)) {
-            return buildSearchUrl(trimmed, searchEngine)
+            return buildSearchUrl(trimmed, searchEngine, customTemplate)
         }
 
         if (trimmed.equals("about:blank", ignoreCase = true) ||
@@ -57,12 +58,17 @@ object UrlUtils {
             }
         }
 
-        return buildSearchUrl(trimmed, searchEngine)
+        return buildSearchUrl(trimmed, searchEngine, customTemplate)
     }
 
-    fun buildSearchUrl(query: String, searchEngine: SearchEngine): String {
+    fun buildSearchUrl(
+        query: String,
+        searchEngine: SearchEngine,
+        customTemplate: String? = null
+    ): String {
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        return searchEngine.queryUrlTemplate.replace("%s", encoded)
+        val template = customTemplate?.takeIf { it.contains("%s") } ?: searchEngine.queryUrlTemplate
+        return template.replace("%s", encoded)
     }
 
     fun extractDisplayHost(url: String): String {

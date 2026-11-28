@@ -112,6 +112,7 @@ fun BrowserApp(viewModel: BrowserViewModel) {
     val safeBrowsingWarning by viewModel.safeBrowsingWarning.collectAsStateWithLifecycle()
     val sitePermissionDecisions by viewModel.sitePermissionDecisions.collectAsStateWithLifecycle()
     val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val adBlockAllowlist by viewModel.adBlockAllowlist.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
@@ -301,6 +302,16 @@ fun BrowserApp(viewModel: BrowserViewModel) {
 
     LaunchedEffect(settings) {
         webViewPool.updateSettingsForAll(tabs, settings)
+    }
+
+    LaunchedEffect(adBlockAllowlist) {
+        val allowed = adBlockAllowlist
+        webViewPool.adsAllowedFor = { host -> allowed.contains(host) }
+    }
+
+    // Background tabs are demoted so the visible one keeps its renderer.
+    LaunchedEffect(activeTab.id) {
+        webViewPool.updateRendererPriorities(activeTab.id)
     }
 
     // Incognito tabs must not show up in the recents thumbnail or a screenshot.
@@ -644,6 +655,27 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                     if (!activeTab.isNewTab) shareText(activeTab.title, activeTab.url)
                 },
                 onFindInPage = { viewModel.setFindInPageActive(true) },
+                onPrint = {
+                    val wv = webViewPool.getWebViewIfExists(activeTab.id)
+                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as? android.print.PrintManager
+                    if (wv != null && printManager != null) {
+                        val jobName = activeTab.title.ifBlank { "Bansify Browser" }
+                        runCatching {
+                            printManager.print(
+                                jobName,
+                                wv.createPrintDocumentAdapter(jobName),
+                                android.print.PrintAttributes.Builder().build()
+                            )
+                        }.onFailure { viewModel.showSnackbar("Printing is not available") }
+                    } else {
+                        viewModel.showSnackbar("Nothing to print on this page")
+                    }
+                },
+                onAllowAdsOnThisSite = { viewModel.allowAdsForActiveTab() },
+                showAllowAds = settings.adBlockEnabled && !activeTab.isNewTab &&
+                    !adBlockAllowlist.contains(
+                        runCatching { android.net.Uri.parse(activeTab.url).host }.getOrNull().orEmpty()
+                    ),
                 onTranslate = { viewModel.setTranslateSheetVisible(true) },
                 onReadingMode = { openReadingModeForCurrentTab() },
                 onAddToHomeScreen = { pinCurrentPageToHomeScreen() },
@@ -810,7 +842,10 @@ fun BrowserApp(viewModel: BrowserViewModel) {
                         sitePermissionDecisions = sitePermissionDecisions,
                         onResetAdBlockCount = { AdBlocker.resetBlockedCount() },
                         onForgetSitePermission = { origin -> viewModel.forgetSitePermission(origin) },
-                        onForgetAllSitePermissions = { viewModel.forgetAllSitePermissions() }
+                        onForgetAllSitePermissions = { viewModel.forgetAllSitePermissions() },
+                        adBlockAllowlist = adBlockAllowlist,
+                        onDisallowAds = { host -> viewModel.disallowAds(host) },
+                        onClearAdsAllowlist = { viewModel.clearAdBlockAllowlist() }
                     )
                 }
             }

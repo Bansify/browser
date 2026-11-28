@@ -83,7 +83,10 @@ fun SettingsSubScreenContent(
     sitePermissionDecisions: List<SitePermissionDecision> = emptyList(),
     onResetAdBlockCount: () -> Unit = {},
     onForgetSitePermission: (String) -> Unit = {},
-    onForgetAllSitePermissions: () -> Unit = {}
+    onForgetAllSitePermissions: () -> Unit = {},
+    adBlockAllowlist: Set<String> = emptySet(),
+    onDisallowAds: (String) -> Unit = {},
+    onClearAdsAllowlist: () -> Unit = {}
 ) {
     val canvasBg = expressiveCanvasColor()
     val context = LocalContext.current
@@ -121,11 +124,67 @@ fun SettingsSubScreenContent(
                         ExpressiveRadioCard(
                             index = idx,
                             totalCount = engines.size,
-                            title = engine.displayName,
-                            subtitle = engine.domain,
+                            title = if (engine == SearchEngine.CUSTOM && settings.customSearchName.isNotBlank()) {
+                                settings.customSearchName
+                            } else {
+                                engine.displayName
+                            },
+                            subtitle = if (engine == SearchEngine.CUSTOM) {
+                                if (settings.customSearchTemplate.contains("%s")) {
+                                    settings.customSearchTemplate
+                                } else {
+                                    "Add a search URL that contains %s"
+                                }
+                            } else {
+                                engine.domain
+                            },
                             selected = settings.searchEngine == engine,
                             onSelect = { onUpdateSettings { it.copy(searchEngine = engine) } }
                         )
+                    }
+
+                    if (settings.searchEngine == SearchEngine.CUSTOM) {
+                        item {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            ExpressiveSettingsSectionTitle("Custom search engine")
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = settings.customSearchName,
+                                    onValueChange = { v ->
+                                        onUpdateSettings { it.copy(customSearchName = v.take(40)) }
+                                    },
+                                    label = { Text("Name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = settings.customSearchTemplate,
+                                    onValueChange = { v ->
+                                        onUpdateSettings { it.copy(customSearchTemplate = v.take(300)) }
+                                    },
+                                    label = { Text("Search URL") },
+                                    placeholder = { Text("https://example.com/search?q=%s") },
+                                    singleLine = true,
+                                    isError = settings.customSearchTemplate.isNotBlank() &&
+                                        !settings.customSearchTemplate.contains("%s"),
+                                    supportingText = {
+                                        Text(
+                                            if (settings.customSearchTemplate.contains("%s")) {
+                                                "%s is replaced with what you type"
+                                            } else {
+                                                "The URL must contain %s"
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -251,12 +310,40 @@ fun SettingsSubScreenContent(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                val roleManager = remember {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        context.getSystemService(android.app.role.RoleManager::class.java)
+                                    } else {
+                                        null
+                                    }
+                                }
+                                val alreadyDefault = remember(roleManager) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_BROWSER) == true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                if (alreadyDefault) {
+                                    Text(
+                                        text = "Bansify Browser is your default browser.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 Button(
                                     onClick = {
+                                        val roleIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            roleManager?.createRequestRoleIntent(
+                                                android.app.role.RoleManager.ROLE_BROWSER
+                                            )
+                                        } else {
+                                            null
+                                        }
                                         runCatching {
-                                            val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
+                                            val intent = roleIntent
+                                                ?: Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                             context.startActivity(intent)
                                         }
                                     },
@@ -575,6 +662,45 @@ fun SettingsSubScreenContent(
                                     modifier = Modifier.padding(start = 12.dp)
                                 ) {
                                     Text("Clear all")
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        ExpressiveSettingsSectionTitle("Sites where ads are allowed")
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (adBlockAllowlist.isEmpty()) {
+                                Text(
+                                    text = "Blocking is on for every site. Use the page menu on a site to allow ads there.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                                )
+                            } else {
+                                adBlockAllowlist.sorted().forEach { host ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 20.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = host,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = { onDisallowAds(host) }) {
+                                            Text("Block again")
+                                        }
+                                    }
+                                }
+                                TextButton(
+                                    onClick = onClearAdsAllowlist,
+                                    modifier = Modifier.padding(start = 12.dp)
+                                ) {
+                                    Text("Block ads everywhere")
                                 }
                             }
                         }

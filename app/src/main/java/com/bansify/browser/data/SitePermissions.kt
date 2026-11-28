@@ -40,6 +40,37 @@ class SitePermissionStore(private val context: Context) {
 
     private companion object {
         val DECISIONS = stringPreferencesKey("decisions")
+        val ADS_ALLOWED = stringPreferencesKey("ads_allowed")
+    }
+
+    /** Hosts where the user turned ad blocking off. */
+    val adBlockAllowlist: Flow<Set<String>> = context.sitePermissionDataStore.data.map { prefs ->
+        prefs[ADS_ALLOWED].orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+
+    suspend fun allowAds(host: String) {
+        if (host.isBlank()) return
+        context.sitePermissionDataStore.edit { prefs ->
+            val current = prefs[ADS_ALLOWED].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+            current.add(host)
+            prefs[ADS_ALLOWED] = current.joinToString(",")
+        }
+    }
+
+    suspend fun disallowAds(host: String) {
+        context.sitePermissionDataStore.edit { prefs ->
+            val current = prefs[ADS_ALLOWED].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+            current.remove(host)
+            prefs[ADS_ALLOWED] = current.joinToString(",")
+        }
+    }
+
+    suspend fun clearAdBlockAllowlist() {
+        context.sitePermissionDataStore.edit { prefs -> prefs.remove(ADS_ALLOWED) }
     }
 
     val decisions: Flow<List<SitePermissionDecision>> = context.sitePermissionDataStore.data.map { prefs ->

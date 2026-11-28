@@ -98,7 +98,10 @@ fun SettingsScreen(
     sitePermissionDecisions: List<com.bansify.browser.data.SitePermissionDecision> = emptyList(),
     onResetAdBlockCount: () -> Unit = {},
     onForgetSitePermission: (String) -> Unit = {},
-    onForgetAllSitePermissions: () -> Unit = {}
+    onForgetAllSitePermissions: () -> Unit = {},
+    adBlockAllowlist: Set<String> = emptySet(),
+    onDisallowAds: (String) -> Unit = {},
+    onClearAdsAllowlist: () -> Unit = {}
 ) {
     BackHandler { onBack() }
 
@@ -144,7 +147,10 @@ fun SettingsScreen(
                 sitePermissionDecisions = sitePermissionDecisions,
                 onResetAdBlockCount = onResetAdBlockCount,
                 onForgetSitePermission = onForgetSitePermission,
-                onForgetAllSitePermissions = onForgetAllSitePermissions
+                onForgetAllSitePermissions = onForgetAllSitePermissions,
+                adBlockAllowlist = adBlockAllowlist,
+                onDisallowAds = onDisallowAds,
+                onClearAdsAllowlist = onClearAdsAllowlist
             )
             return
         }

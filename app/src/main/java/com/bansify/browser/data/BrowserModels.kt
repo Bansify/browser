@@ -15,7 +15,8 @@ enum class SearchEngine(
     BING("Bing", "bing.com", "https://www.bing.com/search?q=%s"),
     YAHOO("Yahoo!", "search.yahoo.com", "https://search.yahoo.com/search?p=%s"),
     BRAVE("Brave Search", "search.brave.com", "https://search.brave.com/search?q=%s"),
-    ECOSIA("Ecosia", "ecosia.org", "https://www.ecosia.org/search?q=%s")
+    ECOSIA("Ecosia", "ecosia.org", "https://www.ecosia.org/search?q=%s"),
+    CUSTOM("Custom", "", "https://www.google.com/search?q=%s")
 }
 
 enum class ThemeMode(val label: String) {
@@ -107,8 +108,24 @@ data class BrowserSettings(
     /** Host-based ad and tracker blocking, on by default, user can turn it off in Settings. */
     val adBlockEnabled: Boolean = true,
     /** Ask the user before a site gets camera, microphone or location. */
-    val sitePermissionPromptsEnabled: Boolean = true
-)
+    val sitePermissionPromptsEnabled: Boolean = true,
+    /** Name shown for a user-supplied search engine. */
+    val customSearchName: String = "",
+    /** Query template for the custom engine; %s is replaced with the query. */
+    val customSearchTemplate: String = ""
+) {
+    /** Template to use for searches: the custom one when selected and valid, else the engine's. */
+    val effectiveSearchTemplate: String
+        get() = if (searchEngine == SearchEngine.CUSTOM &&
+            customSearchTemplate.contains("%s")
+        ) {
+            customSearchTemplate
+        } else if (searchEngine == SearchEngine.CUSTOM) {
+            SearchEngine.GOOGLE.queryUrlTemplate
+        } else {
+            searchEngine.queryUrlTemplate
+        }
+}
 
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
