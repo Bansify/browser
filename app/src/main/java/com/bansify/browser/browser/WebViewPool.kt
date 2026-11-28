@@ -144,8 +144,9 @@ class WebViewPool(
         @Volatile
         var pendingState: Bundle? = null
 
+        /** Fallback only; the real desktop UA is derived from the device UA (see UserAgentUtils). */
         private const val DESKTOP_USER_AGENT =
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     fun getOrCreateWebView(tab: BrowserTab, settings: BrowserSettings): WebView {
@@ -280,10 +281,15 @@ class WebViewPool(
 
     fun setDesktopSite(tab: BrowserTab, enabled: Boolean) {
         val wv = webViews[tab.id] ?: return
-        val defaultUa = defaultUserAgents[tab.id] ?: wv.settings.userAgentString
-        wv.settings.userAgentString = if (enabled) DESKTOP_USER_AGENT else defaultUa
-        wv.settings.useWideViewPort = true
-        wv.settings.loadWithOverviewMode = true
+        val deviceUa = defaultUserAgents[tab.id]
+            ?: UserAgentUtils.normalize(wv.settings.userAgentString)
+        wv.settings.userAgentString = if (enabled) {
+            UserAgentUtils.toDesktop(deviceUa).takeIf { it != deviceUa } ?: DESKTOP_USER_AGENT
+        } else {
+            deviceUa
+        }
+        wv.settings.useWideViewPort = enabled
+        wv.settings.loadWithOverviewMode = enabled
         if (!tab.isNewTab) {
             wv.reload()
         }
@@ -440,7 +446,7 @@ class WebViewPool(
             isFocusableInTouchMode = true
         }
 
-        defaultUserAgents[tab.id] = webView.settings.userAgentString
+        defaultUserAgents[tab.id] = UserAgentUtils.normalize(webView.settings.userAgentString)
         applySettingsToWebView(webView, tab, settings)
 
         webView.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
@@ -527,6 +533,9 @@ class WebViewPool(
                     canGoBack = wv.canGoBack(),
                     canGoForward = wv.canGoForward()
                 )
+                // Challenge cookies (Cloudflare, Google) must survive a restart or the user is
+                // asked again on the next launch.
+                runCatching { CookieManager.getInstance().flush() }
                 wv.postDelayed({ captureThumbnail(tab.id) }, 250L)
             }
 
@@ -788,8 +797,6 @@ class WebViewPool(
         ws.javaScriptCanOpenWindowsAutomatically = settings.popupsAllowed
         ws.mediaPlaybackRequiresUserGesture = !settings.mediaAutoplayEnabled
         ws.textZoom = settings.textZoomPercent.coerceIn(50, 200)
-        ws.useWideViewPort = true
-        ws.loadWithOverviewMode = true
         ws.builtInZoomControls = true
         ws.displayZoomControls = false
         ws.setSupportZoom(true)
@@ -807,15 +814,27 @@ class WebViewPool(
             ws.safeBrowsingEnabled = settings.safeBrowsingLevel != SafeBrowsingLevel.NONE
         }
 
-        val defaultUa = defaultUserAgents[tab.id] ?: ws.userAgentString
+        val deviceUa = defaultUserAgents[tab.id]
+            ?: UserAgentUtils.normalize(ws.userAgentString)
         val wantDesktop = tab.isDesktopSite || settings.defaultDesktopSite
-        val desiredUa = if (wantDesktop) DESKTOP_USER_AGENT else defaultUa
+        val desiredUa = if (wantDesktop) {
+            UserAgentUtils.toDesktop(deviceUa).takeIf { it != deviceUa } ?: DESKTOP_USER_AGENT
+        } else {
+            deviceUa
+        }
         if (ws.userAgentString != desiredUa) {
             ws.userAgentString = desiredUa
         }
+        // A mobile UA with a 980px overview viewport is an inconsistency bot checks flag, so the
+        // wide viewport only applies in desktop mode.
+        ws.useWideViewPort = wantDesktop
+        ws.loadWithOverviewMode = wantDesktop
 
         val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(settings.cookiesEnabled && !tab.isIncognito)
+        // CookieManager.setAcceptCookie is process-wide. Driving it from the current tab meant an
+        // incognito tab turned cookies off for every tab, which made reCAPTCHA and Cloudflare
+        // Turnstile loop forever. The user's setting decides; incognito is handled below.
+        cookieManager.setAcceptCookie(settings.cookiesEnabled)
         val allowThirdParty = when {
             !settings.cookiesEnabled -> false
             settings.thirdPartyCookiePolicy == ThirdPartyCookiePolicy.BLOCK_ALL -> false

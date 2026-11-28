@@ -86,3 +86,23 @@ Gothwad Accounts service and it does not sync anything yet. Real SSO is tracked 
 - The ViewModel never touches `Context` beyond what it is given at construction.
 - Anything that must survive process death goes to Room or DataStore, never to a field.
 - No network client of its own: pages are rendered by the platform `WebView`.
+
+## Bot verification, cookies and the user agent
+
+Three details decide whether Cloudflare Turnstile, reCAPTCHA and hCaptcha let a visitor
+through. All three were wrong once, and the symptoms were "verification failed" and endless
+captcha prompts.
+
+1. **The user agent must look like a browser.** WebView's stock UA carries `; wv)` and
+   `Version/4.0`, both of which mark an embedded app view. `UserAgentUtils.normalize()`
+   removes exactly those two tokens and keeps the real engine version, so the UA still
+   matches what is actually rendering the page. Desktop mode is derived from the same UA
+   (`toDesktop()`), never hardcoded, for the same reason.
+2. **`CookieManager.setAcceptCookie` is process-wide.** It is set from the user's cookie
+   preference only — never from a single tab. Driving it from the current tab meant opening
+   an incognito tab silently disabled cookies for every tab, and every challenge then failed.
+3. **The viewport must agree with the UA.** A mobile UA with a 980 px overview viewport is an
+   inconsistency challenge scripts flag, so `useWideViewPort`/`loadWithOverviewMode` are only
+   on in desktop mode.
+
+Cookies are flushed after each page finishes so a passed challenge survives the next launch.
